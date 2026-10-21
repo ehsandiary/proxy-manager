@@ -25,7 +25,7 @@ chmod 600 "$F"
 SIZE="$(du -h "$F" | cut -f1)"
 echo "$F ($SIZE)"
 if [ "$LABEL" = daily ]; then
-  find "$BACKUP_DIR" -maxdepth 1 -name 'proxymgr-daily-*.dump' -mtime +"$BACKUP_KEEP_DAYS" -delete || true
+  find "$BACKUP_DIR" -maxdepth 1 -name 'proxymgr-daily-*.dump' -mtime +"$BACKUP_KEEP_DAYS" -delete  || true
 fi
 ls -1t "$BACKUP_DIR"/proxymgr-pre-upgrade-*.dump 2>/dev/null | tail -n +6 | xargs -r rm -f || true
 # let the dashboard show when the last backup ran (ignored if the table doesn't exist yet)

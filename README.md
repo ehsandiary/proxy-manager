@@ -1,4 +1,6 @@
-# Proxy Manager
+<p align="center"><img src="app/static/logo.svg" alt="" width="96"></p>
+
+<h1 align="center">Proxy Manager</h1>
 
 A small self-hosted dashboard for a fleet of your own HTTP(S) proxies (Squid on cheap VMs at any provider). It keeps the inventory, health-checks every proxy, and tracks which use case each proxy serves.
 

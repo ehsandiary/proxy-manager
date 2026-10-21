@@ -27,6 +27,8 @@ h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: v
 .top { display: flex; align-items: center; gap: 20px; padding: 0 20px; height: 52px; background: var(--panel); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 5; }
 .brand { font-weight: 700; color: var(--ink); display: flex; align-items: center; gap: 8px; }
 .brand.big { font-size: 18px; margin-bottom: 8px; }
+.brand .logo { width: 24px; height: 24px; display: block; }
+.brand.big .logo { width: 32px; height: 32px; }
 .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--good); box-shadow: 0 0 0 3px var(--good-bg); }
 .top nav { display: flex; gap: 4px; flex: 1; }
 .top nav a { color: var(--sub); padding: 6px 10px; border-radius: 6px; }

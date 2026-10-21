@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.1.1
+- Fix: the Health page and date filters on Events returned "Internal Server Error" (time-window and date values
+  were sent to PostgreSQL with the wrong type).
+- Logo and favicon.
+
 ## 1.1.0
 - **Health page**: every outage (start, end, duration, reason, use case), flaky proxies (failed checks without going
   down, by timeouts / connection errors), and a per-provider comparison (failure rate, outages, speed, price).

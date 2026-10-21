@@ -740,9 +740,9 @@ def _events_query(q):
     if q.get("provider"):
         where.append("p.provider = " + arg(q["provider"]))
     if DATE_RE.match(q.get("from", "")):
-        where.append("e.ts >= %s::date" % arg(q["from"]))
+        where.append("e.ts >= %s::text::date" % arg(q["from"]))
     if DATE_RE.match(q.get("to", "")):
-        where.append("e.ts < %s::date + 1" % arg(q["to"]))
+        where.append("e.ts < %s::text::date + 1" % arg(q["to"]))
     if q.get("q"):
         like = arg("%" + q["q"] + "%")
         where.append("(e.message ILIKE {0} OR p.label ILIKE {0} OR p.host ILIKE {0} OR a.name ILIKE {0})".format(like))
@@ -1125,7 +1125,7 @@ def _incident_query(q):
 
     win = q.get("win", "7d") if q.get("win") in INC_WINDOWS else "7d"
     if INC_WINDOWS[win]:
-        where.append("(i.ended_at IS NULL OR i.started_at > now() - %s::interval)" % arg(INC_WINDOWS[win]))
+        where.append("(i.ended_at IS NULL OR i.started_at > now() - %s::text::interval)" % arg(INC_WINDOWS[win]))
     if q.get("open") == "1":
         where.append("i.ended_at IS NULL")
     if q.get("provider"):
@@ -1161,7 +1161,7 @@ async def _check_stats(win_key, provider=""):
                    count(*) FILTER (WHERE NOT c.ok AND {r} NOT IN ('timeout', 'refused', 'unreachable', 'auth')) AS other,
                    max(c.ts) FILTER (WHERE NOT c.ok) AS last_fail,
                    round(avg(c.latency_ms) FILTER (WHERE c.ok)) AS avg_ms
-            FROM checks c WHERE c.ts > now() - $1::interval AND NOT c.mass
+            FROM checks c WHERE c.ts > now() - $1::text::interval AND NOT c.mass
             GROUP BY c.proxy_id)
         SELECT s.*, round(100.0 * s.failed / s.checks, 1) AS fail_pct,
                p.id, p.seq, p.label, p.host, p.port, p.provider, p.region, p.status, p.enabled, p.lifecycle,
@@ -1215,7 +1215,7 @@ async def health_page(request):
         inc = {r["provider"]: r for r in await db.fetch("""
             SELECT p.provider, count(*) AS n, count(*) FILTER (WHERE i.reason = 'timeout') AS timeouts
             FROM incidents i JOIN proxies p ON p.id = i.proxy_id
-            WHERE i.started_at > now() - $1::interval GROUP BY p.provider""", CHECK_WINDOWS[win])}
+            WHERE i.started_at > now() - $1::text::interval GROUP BY p.provider""", CHECK_WINDOWS[win])}
         prices = await provider_prices()
         out = []
         for lv in live:
@@ -1369,6 +1369,11 @@ async def healthz(request):
         return JSONResponse({"ok": True})
     except Exception as e:  # noqa: BLE001
         return JSONResponse({"ok": False, "error": str(e)}, status_code=503)
+
+
+async def favicon(request):
+    return FileResponse(os.path.join(HERE, "static", "favicon.ico"), media_type="image/x-icon",
+                        headers={"Cache-Control": "public, max-age=604800"})
 
 
 async def node_script(request):
@@ -1557,6 +1562,7 @@ routes = [
     Route("/users", users_page, methods=["GET", "POST"]),
     Route("/account", account_page, methods=["GET", "POST"]),
     Route("/healthz", healthz),
+    Route("/favicon.ico", favicon),
     Route("/install-node.sh", node_script),
     Route("/api/v1/ip", api_ip),
     Route("/api/v1/proxies", api_proxies),

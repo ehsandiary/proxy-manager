@@ -4,12 +4,16 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}Proxy Manager{% endblock %}</title>
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+<meta name="theme-color" content="#2f5bea">
 <link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
 {% if user %}
 <header class="top">
-  <a class="brand" href="/"><span class="dot"></span>Proxy Manager</a>
+  <a class="brand" href="/"><img class="logo" src="/static/logo.svg" alt="">Proxy Manager</a>
   <nav>
     <a href="/" class="{{ 'on' if nav in ('dashboard', 'proxy') }}">Proxies</a>
     <a href="/health" class="{{ 'on' if nav == 'health' }}">Health</a>
