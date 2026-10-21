@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Add proxies · Proxy Manager{% endblock %}
+{% block content %}
+<h1>Add proxies</h1>
+<p class="sub">New nodes set up with the script on <a href="/settings">Settings</a> register themselves as 🆗 Ready. Use this page for everything else.</p>
+{% if result and result.errors %}
+<div class="flash err"><b>{{ result.errors|length }} line(s) skipped:</b><br>{% for e in result.errors[:30] %}{{ e }}<br>{% endfor %}</div>
+{% endif %}
+<form method="post" action="/add" class="card">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <label class="wide">Paste rows from your proxy sheet, or one proxy per line
+    <textarea name="lines" rows="12" class="mono" placeholder="1	px-us-east-01	us-east1-b	user:PASSWORD	34.1.2.3:3128	app-1	✅
+px-us-west1-01	us-west1-c	user:PASSWORD	35.2.3.4:3128		🆗
+px-us-central1-01	us-central1-f	user:PASSWORD	34.5.6.7:3128	app-2	❌	Deleted
+px-us-west2-01	us-west2-a	user:PASSWORD	34.5.6.8:3128	app-3	🗑
+
+34.1.2.3:3128:user:pass
+http://user:pass@34.1.2.3:3128"></textarea>
+  </label>
+  <p class="sub"><b>Sheet rows</b> (Name · Region · User:Pass · IP:Port · Use case · Status · Deleted) are understood as they are: ✅ = Active, 🆗 = Ready, ❌ = Suspended, 🗑 or “to delete” = To delete, and a “Deleted” cell (VM already gone) puts it in Trash, unmonitored. Include the <b>#</b> column to keep your sheet's numbering. The header row is ignored, and re-pasting updates existing proxies instead of duplicating them. A line with only <code># ⇥ IP:Port</code> just renumbers that proxy and changes nothing else.</p>
+  <div class="row">
+    <label>Provider<input name="provider" placeholder="auto: gcp for GCP zones"></label>
+    <label>Country<input name="country" value="US" maxlength="8"></label>
+    <label>Protocol
+      <select name="protocol"><option value="http">http</option><option value="socks5">socks5</option></select>
+    </label>
+    <label>Name / Region <span class="sub">(single-proxy lines only)</span>
+      <span class="lifebox"><input name="label" placeholder="px-us-east-01" style="flex:1"><input name="region" placeholder="us-east1-b" style="flex:1"></span>
+    </label>
+  </div>
+  <button class="btn primary">Add</button>
+</form>
+{% endblock %}

@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Users · Proxy Manager{% endblock %}
+{% block content %}
+<h1>Users</h1>
+<p class="sub">Admins can do everything, including this page and Settings. Normal users can work with proxies, use cases and imports. Every change is stamped with who made it.</p>
+<div class="tablewrap">
+<table class="grid">
+<thead><tr><th>User</th><th>Role</th><th>Last login</th><th class="num">Changes (7d)</th><th>Added</th><th></th></tr></thead>
+<tbody>
+{% for u in users %}
+<tr>
+  <td><b>{{ u.username }}</b>{% if u.id == me.id %} <span class="sub">(you)</span>{% endif %}</td>
+  <td><span class="pill {{ 'lcp-active' if u.is_admin else '' }}">{{ 'admin' if u.is_admin else 'user' }}</span></td>
+  <td class="sub">{{ u.last_login_at|ago if u.last_login_at else 'never' }}</td>
+  <td class="num"><a href="/events?actor={{ u.username }}">{{ u.changes }}</a></td>
+  <td class="sub">{{ u.created_at|ago }}</td>
+  <td>
+    <form method="post" action="/users" class="lifebox">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input type="hidden" name="uid" value="{{ u.id }}">
+      <button class="btn sm" name="action" value="reset" onclick="return confirm('Generate a new password for {{ u.username }}? They will be logged out.')">Reset password</button>
+      <button class="btn sm" name="action" value="toggle_admin">{{ 'Make normal user' if u.is_admin else 'Make admin' }}</button>
+      {% if u.id != me.id %}<button class="btn sm danger" name="action" value="delete" onclick="return confirm('Delete user {{ u.username }}?')">Delete</button>{% endif %}
+    </form>
+  </td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+</div>
+
+<form method="post" action="/users" class="card" style="margin-top:14px; max-width:560px">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <input type="hidden" name="action" value="add">
+  <h3>Add user</h3>
+  <div class="kv">
+    <label>Username<input name="username" placeholder="alex" required pattern="[a-z0-9._\-]{2,32}" autocomplete="off"></label>
+    <label>Password<input name="password" placeholder="leave empty to generate" autocomplete="new-password"></label>
+  </div>
+  <label class="inline"><input type="checkbox" name="is_admin" value="1"> Admin</label>
+  <button class="btn primary">Add user</button>
+</form>
+{% endblock %}

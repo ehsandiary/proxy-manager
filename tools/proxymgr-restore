@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# proxymgr-restore FILE.dump — replace the database with a backup.
+# Takes a safety backup of the current database first, stops the services, restores, starts them again.
+set -euo pipefail
+[ "$(id -u)" -eq 0 ] || { echo "run with sudo" >&2; exit 1; }
+BACKUP_DIR=/var/backups/proxymgr
+v="$(grep -E '^BACKUP_DIR=' /etc/proxymgr/proxymgr.env 2>/dev/null | tail -1 | cut -d= -f2-)"; [ -n "$v" ] && BACKUP_DIR="$v"
+F="${1:-}"
+[ -n "$F" ] && [ -f "$F" ] || { echo "usage: sudo proxymgr-restore /path/to/proxymgr-....dump" >&2; ls -1t "$BACKUP_DIR"/*.dump 2>/dev/null | head -10; exit 2; }
+pg_restore --list "$F" >/dev/null || { echo "not a valid proxymgr backup: $F" >&2; exit 1; }
+echo "This REPLACES the current database with: $F"
+read -r -p "Type 'restore' to continue: " ok
+[ "$ok" = restore ] || { echo "cancelled"; exit 1; }
+echo "==> Safety backup of the current database"
+/usr/local/sbin/proxymgr-backup pre-restore
+echo "==> Stopping services"
+systemctl stop proxymgr-api proxymgr-checker
+echo "==> Restoring (the database is recreated exactly as it was in the backup)"
+cd /
+sudo -u postgres psql -q -d postgres -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'proxymgr' AND pid <> pg_backend_pid()" >/dev/null
+sudo -u postgres dropdb proxymgr
+sudo -u postgres createdb -O proxymgr proxymgr
+if ! sudo -u postgres pg_restore --exit-on-error -d proxymgr < "$F"; then
+  echo "RESTORE FAILED. The database before this restore is in the newest pre-restore backup:" >&2
+  ls -1t "$BACKUP_DIR"/proxymgr-pre-restore-*.dump 2>/dev/null | head -1 >&2
+  exit 1
+fi
+echo "==> Starting services"
+systemctl start proxymgr-api proxymgr-checker
+for _ in $(seq 1 30); do curl -fsS http://127.0.0.1:8000/healthz >/dev/null 2>&1 && { echo "Restored and running."; exit 0; }; sleep 1; done
+echo "Restored, but the app didn't answer yet: journalctl -u proxymgr-api -n 50" >&2; exit 1

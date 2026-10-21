@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block title %}Settings · Proxy Manager{% endblock %}
+{% block content %}
+<h1>Settings</h1>
+
+<div class="card">
+  <h3>1 · Add a proxy node</h3>
+  <p>Create the smallest Ubuntu 24.04 VM with a public IPv4 at any provider, open TCP {{ s.node_http_port }} in the provider's firewall, then run this on it. It installs Squid (HTTP/HTTPS proxy on port {{ s.node_http_port }}) with its own username and password, and registers itself here — it shows up as 🆗 Ready within a minute. Change <code>--provider</code> and <code>--region</code> per node.</p>
+  <pre class="copy">curl -fsSL{{ 'k' if insecure }} {{ base }}/install-node.sh | sudo bash -s -- \
+  --main {{ base }} \
+  --token {{ s.enroll_token or 'SET_ENROLL_TOKEN' }} \
+  --provider digitalocean --country US --region nyc1{{ ' --insecure' if insecure }}</pre>
+  <p class="sub">Add <code>--socks</code> to also run a SOCKS5 proxy on {{ s.node_socks_port }}. Don't run this on the existing GCP Squids that apps already use — it would change their password. Add those on the <a href="/add">Add</a> or <a href="/apps#import">Apps</a> page instead.</p>
+  {% if stale %}
+  <p class="no">These enrolled nodes haven't synced in 15+ minutes (powered off, deleted, or their sync timer is broken):</p>
+  <ul class="mono">{% for n in stale %}<li>{{ n.host }} ({{ n.provider }}) — {{ n.seen|ago }}</li>{% endfor %}</ul>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h3>2 · Who may connect to the proxies</h3>
+  {% if effective == ['0.0.0.0/0'] %}
+  <p><b>Currently open to any IP</b>, protected by username/password only — the same as the old GCP Squids. To lock nodes down, list the public IPs of the servers your apps run on.</p>
+  {% else %}
+  <p>Only these IPs/CIDRs (plus this server) can reach the proxy port on nodes. Clear the list to go back to password-only.</p>
+  {% endif %}
+  <form method="post" action="/settings">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="action" value="cidrs">
+    <textarea name="cidrs" rows="5" class="mono" placeholder="203.0.113.10&#10;198.51.100.0/24">{{ cidrs }}</textarea>
+    <button class="btn primary">Save</button>
+  </form>
+  <p class="sub">Effective on nodes: <span class="mono">{{ effective|join(', ') }}</span>. Nodes re-sync every 5 minutes. Applies to nodes added with the script above, not to proxies added manually.</p>
+</div>
+
+<div class="card">
+  <h3>3 · API (optional)</h3>
+  <p>Not needed for daily work — it's there for scripts. Send the key in the <code>X-API-Key</code> header.</p>
+<pre class="copy"># the proxy currently assigned to one app (plain URL)
+curl -H "X-API-Key: $KEY" "{{ base }}/api/v1/apps/APP_NAME/proxy?format=url"
+
+# every app and its proxy
+curl -H "X-API-Key: $KEY" {{ base }}/api/v1/apps
+
+# Ready + healthy proxies (free to pick)
+curl -H "X-API-Key: $KEY" "{{ base }}/api/v1/proxies?free=1&amp;format=url"
+
+# tell us a proxy failed (logged + rechecked immediately)
+curl -H "X-API-Key: $KEY" -H 'Content-Type: application/json' \
+  -d '{"host":"1.2.3.4","port":3128,"source":"APP_NAME","error":"timeout"}' {{ base }}/api/v1/report</pre>
+</div>
+
+<div class="card" id="prices">
+  <h3>4 · Monthly price per proxy</h3>
+  <p class="sub">Used for the cost totals on the Proxies page and the “To delete” reminder. Leave empty to not count a provider.</p>
+  <form method="post" action="/settings" class="row">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    {% for pr in providers %}<label>{{ pr }} ($/mo)<input name="price_{{ pr }}" value="{{ prices.get(pr) if prices.get(pr) is not none else '' }}" inputmode="decimal"></label>{% endfor %}
+    <div><button class="btn primary" name="action" value="prices">Save prices</button></div>
+  </form>
+</div>
+
+<div class="card" id="digest">
+  <h3>5 · Daily summary</h3>
+  <p class="sub">Once a day to Telegram/Slack: proxies down now, yesterday's outages by reason, the flakiest proxies, providers' failure rates, VMs waiting to be deleted, and backup status.</p>
+  <form method="post" action="/settings" class="lifebox">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label class="inline">Send at <input name="hour" value="{{ digest_hour }}" placeholder="off" style="width:70px" inputmode="numeric"> :00 UTC</label>
+    <button class="btn" name="action" value="digest">Save</button>
+    <button class="btn" name="action" value="digest_now">Send one now</button>
+  </form>
+  {% if digest_preview %}<pre style="margin-top:10px; white-space:pre-wrap">{{ digest_preview }}</pre>{% endif %}
+</div>
+
+<div class="card">
+  <h3>6 · Backups</h3>
+  {% if backup %}
+  <p>Last backup <b class="{{ 'no' if backup.old }}">{{ backup.at|ago }}</b> ({{ backup.size }}) — <span class="mono">{{ backup.path }}</span>{% if backup.old %} — <span class="no">older than 36h, check <code>systemctl status proxymgr-backup.timer</code></span>{% endif %}</p>
+  {% else %}<p class="no">No backup recorded yet. The daily one runs at 03:30 server time; or run <code>sudo proxymgr-backup</code> now.</p>{% endif %}
+  <p class="sub">On the server: <code>sudo proxymgr-backup</code> (now) · <code>sudo proxymgr-restore FILE</code> (restore, takes a safety backup first). Every upgrade backs up before changing anything.</p>
+</div>
+
+<div class="card">
+  <h3>7 · Health checks and alerts</h3>
+  <dl class="meta">
+    <dt>Check</dt><dd>{{ s.check_modes|join(' + ') }} every {{ s.check_interval }}s through each proxy, timeout {{ s.check_timeout }}s</dd>
+    <dt>Target</dt><dd class="mono">{{ s.check_url }}</dd>
+    <dt>Dead after</dt><dd>{{ s.fail_threshold }} failed checks in a row; healthy again after {{ s.recover_threshold }} good ones</dd>
+    <dt>Alerts</dt><dd>Telegram {{ '✅ on' if telegram else 'off' }} · Slack {{ '✅ on' if slack else 'off' }} — sent when an Active or Ready proxy goes down or recovers, plus a daily reminder for To delete VMs{% if s.min_spares %} · fewer than {{ s.min_spares }} spares{% endif %}{% if s.min_healthy %} · fewer than {{ s.min_healthy }} healthy{% endif %}</dd>
+    <dt>History kept</dt><dd>individual checks {{ s.retention_days }} days · outages and events forever</dd>
+    <dt>Version</dt><dd>{{ version }}</dd>
+  </dl>
+  <form method="post" action="/settings">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <button class="btn" name="action" value="test_alert">Send test alert</button>
+  </form>
+  <p class="sub">Change these in <code>/etc/proxymgr/proxymgr.env</code> (<code>TELEGRAM_BOT_TOKEN</code> + <code>TELEGRAM_CHAT_ID</code>, and/or <code>SLACK_WEBHOOK_URL</code>), then <code>systemctl restart proxymgr-api proxymgr-checker</code>.</p>
+</div>
+{% endblock %}
+{% block scripts %}<script src="/static/app.js"></script>{% endblock %}

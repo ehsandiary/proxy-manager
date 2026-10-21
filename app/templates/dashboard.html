@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="stats">
+  <a class="stat good" href="/?life=active"><b>{{ summary.active }}</b><span>✅ Active{% if summary.active_dead %} · <em class="no">{{ summary.active_dead }} down</em>{% endif %}</span></a>
+  <a class="stat" href="/?life=ready"><b>{{ summary.ready }}</b><span>🆗 Ready · {{ summary.spare }} healthy</span></a>
+  <a class="stat" href="/?life=suspended"><b>{{ summary.suspended }}</b><span>❌ Suspended</span></a>
+  <a class="stat {{ 'bad' if summary.waste }}" href="/?life=to_delete"><b>{{ summary.waste }}{% if summary.waste %}<small> ≈ ${{ '%.0f'|format(summary.waste_cost) }}/mo</small>{% endif %}</b><span>🗑 To delete — VM still running</span></a>
+  <a class="stat {{ 'bad' if summary.dead }}" href="/?status=dead"><b>{{ summary.dead }}<small> / {{ summary.live }}</small></b><span>Health: down</span></a>
+  <a class="stat muted" href="/?life=trash"><b>{{ summary.deleted }}</b><span>Trash</span></a>
+  <div class="stat" title="Active ${{ '%.0f'|format(cost.active) }} · Ready ${{ '%.0f'|format(cost.ready) }} · Suspended/To delete ${{ '%.0f'|format(cost.idle) }}{{ ' · no price set for: ' ~ cost.unpriced|join(', ') if cost.unpriced }}"><b>${{ '%.0f'|format(cost.total) }}<small>/mo</small></b><span>Proxy cost · active ${{ '%.0f'|format(cost.active) }}</span></div>
+  <div class="stat"><b>{{ summary.avg_latency or '—' }}<small>{% if summary.avg_latency %} ms{% endif %}</small></b><span>Avg latency</span></div>
+</section>
+
+<div class="checker {{ 'warn' if checker_age is none or checker_age > interval * 4 else '' }}">
+  {% if checker_age is none %}
+    Health checker hasn't completed a round yet. If this persists: <code>systemctl status proxymgr-checker</code>
+  {% elif checker_age > interval * 4 %}
+    Health checker looks stuck — last round {{ checker_age }}s ago. Check <code>journalctl -u proxymgr-checker</code>
+  {% else %}
+    Health checked every {{ interval }}s · last round {{ checker_age }}s ago ({{ last_round_secs }}s)
+  {% endif %}
+  <label class="auto"><input type="checkbox" id="autorefresh"> auto-refresh</label>
+</div>
+
+{% if summary.waste and life != 'to_delete' %}
+<a class="alertbar" href="/?life=to_delete">🗑 <span><b>{{ summary.waste }} proxy(ies) marked To delete</b> still have a running VM — about ${{ '%.0f'|format(summary.waste_cost) }}/month for nothing. Delete the VMs, then select them and “Move to trash” →</span></a>
+{% endif %}
+
+<nav class="tabs">
+  {% for key, text in [('live','All'), ('active','✅ Active'), ('ready','🆗 Ready'), ('suspended','❌ Suspended'), ('to_delete','🗑 To delete'), ('trash','Trash'), ('all','Everything')] %}
+  <a href="/?life={{ key }}" class="{{ 'on' if life == key }}">{{ text }}</a>
+  {% endfor %}
+</nav>
+
+<form class="filters" method="get" action="/">
+  <input type="hidden" name="life" value="{{ life }}">
+  <input name="q" placeholder="Search name, use case, IP, region" value="{{ q.get('q', '') }}">
+  <select name="status">
+    <option value="">Any health</option>
+    {% for s, t in [('healthy','healthy'),('dead','down'),('unknown','pending'),('disabled','not monitored')] %}<option value="{{ s }}" {{ 'selected' if q.get('status') == s }}>{{ t }}</option>{% endfor %}
+  </select>
+  <select name="provider">
+    <option value="">Any provider</option>
+    {% for pr in providers %}<option {{ 'selected' if q.get('provider') == pr.provider }}>{{ pr.provider }}</option>{% endfor %}
+  </select>
+  <button class="btn">Filter</button>
+  {% if q.get('q') or q.get('status') or q.get('provider') %}<a class="btn ghost" href="/?life={{ life }}">Clear</a>{% endif %}
+  <a class="btn" href="/export/proxies.csv" title="Same columns as your proxy sheet">Export CSV</a>
+  <a class="btn primary" href="/add">Add proxies</a>
+</form>
+
+<form method="post" action="/bulk" id="bulk">
+<input type="hidden" name="csrf" value="{{ csrf }}" id="csrf">
+<input type="hidden" name="back" value="/?{{ q }}">
+<div class="bulkbar">
+  <span id="selcount">0 selected</span>
+  <button class="btn sm" name="action" value="ready">🆗 Ready</button>
+  <button class="btn sm" name="action" value="active">✅ Active</button>
+  <button class="btn sm" name="action" value="suspended">❌ Suspended</button>
+  <button class="btn sm" name="action" value="to_delete">🗑 To delete</button>
+  <button class="btn sm" name="action" value="mark_deleted" onclick="return confirm('Move the selected proxies to Trash? Do this after their VMs are deleted — monitoring stops.')">Move to trash</button>
+  {% if life in ('trash', 'all') %}<button class="btn sm" name="action" value="undelete">Restore from trash</button>{% endif %}
+  <button class="btn sm" name="action" value="recheck">Recheck</button>
+  <button class="btn sm danger" name="action" value="delete" onclick="return confirm('Erase the selected proxies from the dashboard completely, history too? To keep a record, use “Move to trash” instead.')">Erase</button>
+  <span class="count">{{ rows|length }} shown</span>
+</div>
+<div id="toast" class="toast" hidden></div>
+<div class="tablewrap">
+<table class="grid sheet">
+<thead><tr>
+  <th><input type="checkbox" id="selall"></th>
+  {% macro th(key, label, cls='') %}<th class="{{ cls }}"><a class="sortable {{ 'on' if sort == key }}" title="Sort by {{ label }}" href="?{% for k, v in q.items() if k not in ('sort','dir') %}{{ k }}={{ v|urlencode }}&{% endfor %}sort={{ key }}&dir={{ 'desc' if sort == key and dir == 'asc' else 'asc' }}">{{ label }} <span class="arrow">{% if sort == key %}{{ '▲' if dir == 'asc' else '▼' }}{% else %}⇅{% endif %}</span></a></th>{% endmacro %}
+  {{ th('num', '#', 'num') }}{{ th('name', 'Name') }}{{ th('usecase', 'Use case') }}{{ th('life', 'Status') }}{{ th('status', 'Health') }}{{ th('host', 'IP:Port') }}{{ th('provider', 'Provider') }}{{ th('region', 'Region') }}
+  {{ th('latency', 'Latency', 'num') }}{{ th('uptime', '24h', 'num') }}{{ th('checked', 'Checked') }}<th>Last error</th>
+</tr></thead>
+<tbody>
+{% for p in rows %}
+{% set gone = p.deleted_at is not none %}
+<tr class="{{ 'off' if gone or not p.enabled }} {{ 'prob' if p.lifecycle == 'active' and p.enabled and p.status == 'dead' }}" data-id="{{ p.id }}">
+  <td><input type="checkbox" name="ids" value="{{ p.id }}" class="sel"></td>
+  <td class="num sub">{{ p.num }}</td>
+  <td class="name"><a href="/proxy/{{ p.id }}"><b>{{ p.label or (p.host ~ ':' ~ p.port) }}</b></a>{% if p.protocol != 'http' %} <span class="proto">{{ p.protocol }}</span>{% endif %}</td>
+  <td>
+    {% if gone %}
+      <span class="ucstatic sub">{{ ('was ' ~ p.last_usecase) if p.last_usecase else '—' }}</span>
+    {% else %}
+      <input class="uc" data-id="{{ p.id }}" value="{{ p.app_name or '' }}" placeholder="{{ ('was ' ~ p.last_usecase) if p.last_usecase else 'set use case' }}" aria-label="Use case" autocomplete="off">
+      {% if p.suspended_for %}<div class="susp" title="Suspended on these use cases — don't give it to them again">❌ {{ p.suspended_for.replace(',', ', ') }}</div>{% endif %}
+    {% endif %}
+  </td>
+  <td>
+    {% if gone %}<span class="pill deleted">Trash</span>
+    {% else %}
+    <select class="lc lc-{{ p.lifecycle }}" data-id="{{ p.id }}" data-was="{{ p.lifecycle }}" aria-label="Status">
+      {% for k, t in lifecycles.items() %}<option value="{{ k }}" {{ 'selected' if p.lifecycle == k }}>{{ t }}</option>{% endfor %}
+    </select>
+    {% endif %}
+  </td>
+  <td>{% if gone or not p.enabled %}<span class="sub">not monitored</span>{% else %}<span class="pill {{ p.status }}">{{ {'healthy':'healthy','dead':'down','unknown':'pending'}[p.status] }}</span>{% endif %}</td>
+  <td class="nowrap"><span class="mono">{{ p.host }}:{{ p.port }}</span><button type="button" class="copybtn" data-copy="{{ p.host }}:{{ p.port }}:{{ p.username }}:{{ p.password }}" title="Copy ip:port:user:pass">⧉</button></td>
+  <td>{{ p.provider }}</td>
+  <td class="nowrap">{{ p.region }}</td>
+  <td class="num">{{ p.last_latency_ms ~ ' ms' if p.last_latency_ms is not none and not gone else '—' }}</td>
+  <td class="num">{{ p.uptime ~ '%' if p.uptime is not none and not gone else '—' }}</td>
+  <td class="sub">{{ (p.deleted_at|ago) if gone else (p.last_check_at|ago) }}</td>
+  <td class="err" title="{{ p.last_error or '' }}">{{ p.last_error if p.status != 'healthy' and not gone and p.last_error else '' }}</td>
+</tr>
+{% else %}
+<tr><td colspan="13" class="empty">Nothing here. <a href="/add">Add proxies</a> (paste rows from your sheet) or <a href="/settings">set up a new node</a>.</td></tr>
+{% endfor %}
+</tbody>
+</table>
+</div>
+</form>
+
+<div class="split" style="margin-top:14px">
+<div class="providers">
+  {% for pr in providers %}
+  <a href="/?provider={{ pr.provider }}&life={{ life }}" class="prov {{ 'on' if q.get('provider') == pr.provider }}">
+    <span>{{ pr.provider }}</span>
+    <span class="bar"><i style="width: {{ (pr.healthy / pr.total * 100) if pr.total else 0 }}%"></i></span>
+    <small>{{ pr.healthy }}/{{ pr.total }}</small>
+    <small class="cost">{{ '$%.0f'|format(pr.cost) if pr.cost is not none else '' }}</small>
+  </a>
+  {% endfor %}
+  <div class="prov total"><span>Total / month</span><span></span><small></small><small class="cost"><b>${{ '%.0f'|format(cost.total) }}</b></small></div>
+  {% if is_admin %}<a class="sub" href="/settings#prices" style="padding:4px 6px">Edit prices per provider</a>{% endif %}
+</div>
+<div class="recent">
+  {% for e in events %}<div class="ev {{ e.kind }}"><time>{{ e.ts|ago }}</time> {{ e.message }}{% if e.actor and e.actor != 'system' %} <span class="by">· {{ e.actor }}</span>{% endif %}</div>{% else %}<div class="ev">No events yet.</div>{% endfor %}
+</div>
+</div>
+{% endblock %}
+{% block scripts %}<script src="/static/app.js"></script>{% endblock %}

@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}My account · Proxy Manager{% endblock %}
+{% block content %}
+<h1>{{ me.username }}</h1>
+<p class="sub">{{ 'Admin' if me.is_admin else 'User' }} · last login {{ me.last_login_at|ago if me.last_login_at else 'now' }} · password changed {{ me.pw_changed_at|ago }}</p>
+<form method="post" action="/account" class="card" style="max-width:420px; display:grid; gap:10px">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <h3>Change password</h3>
+  <label>Current password<input type="password" name="current" autocomplete="current-password" required></label>
+  <label>New password <span class="sub">(8+ characters)</span><input type="password" name="new" autocomplete="new-password" minlength="8" required></label>
+  <label>New password again<input type="password" name="again" autocomplete="new-password" minlength="8" required></label>
+  <button class="btn primary">Change password</button>
+</form>
+{% endblock %}

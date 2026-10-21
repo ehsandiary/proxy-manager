@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% block title %}{{ p.label or (p.host ~ ':' ~ p.port) }} · Proxy Manager{% endblock %}
+{% block content %}
+<a href="/" class="back">← All proxies</a>
+<div class="head">
+  <h1>{{ p.label or (p.host ~ ':' ~ p.port) }}</h1>
+  {% if p.label %}<span class="mono">{{ p.host }}:{{ p.port }}</span>{% endif %}
+  {% if p.protocol != 'http' %}<span class="proto">{{ p.protocol }}</span>{% endif %}
+  {% if p.deleted_at %}<span class="pill deleted">Trash · {{ p.deleted_at|ago }}</span>
+  {% else %}<span class="pill lcp-{{ p.lifecycle }}">{{ lifecycles[p.lifecycle] }}</span>{% endif %}
+  {% if p.enabled %}<span class="pill {{ p.status }}">{{ {'healthy':'healthy','dead':'down','unknown':'pending'}[p.status] }}</span>
+  <span class="sub">since {{ p.status_changed_at|ago }}</span>{% else %}<span class="sub">not monitored</span>{% endif %}
+  <form method="post" action="/proxy/{{ p.id }}/action" class="actions">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    {% if p.enabled %}<button class="btn" name="action" value="recheck">Recheck now</button>{% endif %}
+    <button class="btn danger" name="action" value="delete" onclick="return confirm('Erase this proxy and its history from the dashboard? To keep a record, use “Move to trash” instead.')">Erase</button>
+  </form>
+</div>
+
+<div class="card">
+  <h3>Use case &amp; status</h3>
+  <div class="cols">
+    <form method="post" action="/proxy/{{ p.id }}/action">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input type="hidden" name="action" value="usecase">
+      <label>Use case {% if app %}(now <a href="/apps/{{ app.id }}">{{ app.name }}</a>){% elif p.last_usecase %}<span class="sub">— was {{ p.last_usecase }}</span>{% endif %}
+        <span class="lifebox"><input name="value" value="{{ app.name if app else '' }}" placeholder="e.g. app-1, mailer-2" style="max-width:260px" {{ 'disabled' if p.deleted_at }}>
+        <button class="btn" {{ 'disabled' if p.deleted_at }}>Save</button></span>
+      </label>
+      {% if p.suspended_for %}<p class="no">❌ Suspended before on: {{ p.suspended_for.replace(',', ', ') }} — don't give it to {{ 'that use case' if ',' not in p.suspended_for else 'those use cases' }} again.</p>{% endif %}
+      <p class="sub">Typing a use case makes the proxy ✅ Active. Clearing it makes an Active proxy 🆗 Ready.</p>
+    </form>
+    <form method="post" action="/proxy/{{ p.id }}/action">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <label>Status {% if p.lifecycle_at and not p.deleted_at %}<span class="sub">— since {{ p.lifecycle_at|ago }}</span>{% endif %}</label>
+      <div class="lifebox">
+        {% if not p.deleted_at %}
+        {% for k, t in lifecycles.items() %}<button class="btn {{ 'primary' if p.lifecycle == k }}" name="action" value="{{ k }}" {{ 'disabled' if p.lifecycle == k }}
+          {% if k == 'ready' and app %}onclick="return confirm('Set to Ready? This removes use case {{ app.name }} from this proxy.')"{% endif %}>{{ t }}</button>{% endfor %}
+        <button class="btn" name="action" value="mark_deleted" onclick="return confirm('Move to trash? Do this after the VM is deleted — monitoring stops, the record stays.')">Move to trash</button>
+        {% else %}
+        <button class="btn" name="action" value="undelete">Restore from trash</button>
+        {% endif %}
+      </div>
+      {% if p.lifecycle == 'to_delete' and not p.deleted_at %}
+      <p class="no" style="margin-top:8px">Marked To delete {{ p.lifecycle_at|ago if p.lifecycle_at else '' }} — its VM at {{ p.provider }} still costs about ${{ '%.0f'|format(cost) }}/month. Delete the VM, then “Move to trash”.</p>
+      {% endif %}
+    </form>
+  </div>
+</div>
+
+<section class="stats">
+  <div class="stat"><b>{{ uptime.h1 if uptime.h1 is not none else '—' }}<small>%</small></b><span>Uptime 1h</span></div>
+  <div class="stat"><b>{{ uptime.h24 if uptime.h24 is not none else '—' }}<small>%</small></b><span>Uptime 24h</span></div>
+  <div class="stat"><b>{{ uptime.d7 if uptime.d7 is not none else '—' }}<small>%</small></b><span>Uptime 7d</span></div>
+  <div class="stat"><b>{{ p.last_latency_ms if p.last_latency_ms is not none else '—' }}<small> ms</small></b><span>HTTP latency</span></div>
+  {% if 'smtp' in modes %}<div class="stat {{ 'bad' if p.smtp_ok == false }}"><b>{% if p.smtp_ok is none %}—{% elif p.smtp_ok %}OK{% else %}FAIL{% endif %}{% if p.smtp_latency_ms %}<small> {{ p.smtp_latency_ms }} ms</small>{% endif %}</b><span>SMTP</span></div>{% endif %}
+  <div class="stat"><b class="mono sm">{{ p.exit_ip or '—' }}</b><span>Exit IP{% if p.exit_ip and p.exit_ip != p.host %} <em class="no">≠ host</em>{% endif %}</span></div>
+</section>
+
+<div class="card">
+  <h3>Latency, last 24h</h3>
+  <div class="chartbox" id="chart"></div>
+</div>
+
+<div class="cols">
+<div class="card">
+  <h3>Details</h3>
+  <form method="post" action="/proxy/{{ p.id }}/action" class="kv">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label>Name<input name="label" value="{{ p.label }}" placeholder="px-us-east-01"></label>
+    <label># <span class="sub">(number in your sheet)</span><input name="seq" value="{{ p.seq or '' }}" inputmode="numeric" pattern="[0-9]*"></label>
+    <label>Provider<input name="provider" value="{{ p.provider }}"></label>
+    <label>Country<input name="country" value="{{ p.country }}"></label>
+    <label>Region<input name="region" value="{{ p.region }}"></label>
+    <label class="wide">Notes<textarea name="notes" rows="2">{{ p.notes }}</textarea></label>
+    <button class="btn" name="action" value="edit">Save</button>
+  </form>
+  <dl class="meta">
+    <dt>Proxy URL</dt><dd><code class="copy">{{ url }}</code></dd>
+    <dt>Source</dt><dd>{{ p.source }}{% if p.last_seen_sync_at %} · node synced {{ p.last_seen_sync_at|ago }}{% endif %}</dd>
+    <dt>Added</dt><dd>{{ p.created_at|ts }}</dd>
+    <dt>Last OK</dt><dd>{{ p.last_ok_at|ago }}</dd>
+    <dt>Last error</dt><dd class="err">{{ p.last_error or '—' }}</dd>
+  </dl>
+</div>
+<div class="card">
+  <h3>Outages</h3>
+  {% for o in outages %}<div class="ev"><time title="{{ o.started_at|ts }}">{{ o.started_at|ago }}</time>
+    <span class="pill reason-{{ o.reason }}">{{ reasons.get(o.reason, o.reason) }}</span>
+    {% if o.ended_at %}{{ o.secs|dur }} · {{ o.end_note }}{% else %}<b class="no">down for {{ o.secs|dur }}</b>{% endif %}
+    {% if o.usecase %}<span class="sub">· {{ o.usecase }}</span>{% endif %}</div>
+  {% else %}<p class="sub">No outages recorded.</p>{% endfor %}
+  {% if fails %}<p class="sub" style="margin-top:8px">Failed checks, last 24h:
+    {% for f in fails %}<span class="pill reason-{{ f.reason }}">{{ reasons.get(f.reason, f.reason) }} × {{ f.n }}</span> {% endfor %}</p>{% endif %}
+  <h3 style="margin-top:14px">Events</h3>
+  {% for e in events %}<div class="ev {{ e.kind }}"><time>{{ e.ts|ago }}</time> {{ e.message }}{% if e.actor and e.actor != 'system' %} <span class="by">· {{ e.actor }}</span>{% endif %}</div>{% else %}<p class="sub">None.</p>{% endfor %}
+  <h3>App failure reports</h3>
+  {% for r in reports %}<div class="ev"><time>{{ r.ts|ago }}</time> <b>{{ r.source or 'app' }}</b> {{ r.error }}</div>{% else %}<p class="sub">None.</p>{% endfor %}
+</div>
+</div>
+
+<div class="card">
+  <h3>Recent checks</h3>
+  <div class="tablewrap">
+  <table class="grid">
+    <thead><tr><th>Time</th><th>Result</th><th>HTTP</th>{% if 'smtp' in modes %}<th>SMTP</th>{% endif %}<th>Exit IP</th><th>Error</th></tr></thead>
+    <tbody>
+    {% for c in checks %}
+    <tr>
+      <td class="sub">{{ c.ts|ago }}</td>
+      <td>{% if c.ok %}<span class="ok">OK</span>{% else %}<span class="no">FAIL</span>{% endif %}</td>
+      <td class="num">{% if c.http_ok is none %}—{% elif c.http_ok %}{{ c.latency_ms }} ms{% else %}<span class="no">✕</span>{% endif %}</td>
+      {% if 'smtp' in modes %}<td class="num">{% if c.smtp_ok is none %}—{% elif c.smtp_ok %}{{ c.smtp_latency_ms }} ms{% else %}<span class="no">✕</span>{% endif %}</td>{% endif %}
+      <td class="mono">{{ c.exit_ip or '' }}</td>
+      <td class="err">{{ c.error or '' }}</td>
+    </tr>
+    {% else %}<tr><td colspan="6" class="empty">No checks yet.</td></tr>{% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+<script id="chartdata" type="application/json">{{ chart_json|safe }}</script>
+{% endblock %}
+{% block scripts %}
+<script src="/static/app.js"></script>
+{% endblock %}

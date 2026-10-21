@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}Use cases · Proxy Manager{% endblock %}
+{% block content %}
+<section class="stats">
+  <a class="stat" href="/apps"><b>{{ summary.total }}</b><span>Use cases</span></a>
+  <a class="stat good" href="/apps?state=ok"><b>{{ summary.ok }}</b><span>On a healthy, active proxy</span></a>
+  <a class="stat {{ 'bad' if summary.problem }}" href="/apps?state=problem"><b>{{ summary.problem }}</b><span>Proxy down / suspended / to delete</span></a>
+  <a class="stat" href="/apps?state=unassigned"><b>{{ summary.unassigned }}</b><span>No proxy</span></a>
+</section>
+<p class="sub">Use cases are set by typing them in the <a href="/">Proxies</a> table. This page shows where each one is today and its history.</p>
+
+{% if result and result.errors %}
+<div class="flash err"><b>{{ result.errors|length }} line(s) had problems:</b><br>{% for e in result.errors %}{{ e }}<br>{% endfor %}</div>
+{% endif %}
+
+<form class="filters" method="get" action="/apps">
+  <input name="q" placeholder="Search use case, proxy name, IP" value="{{ q.get('q', '') }}">
+  <select name="state">
+    <option value="">Any state</option>
+    <option value="ok" {{ 'selected' if q.get('state') == 'ok' }}>healthy & active</option>
+    <option value="problem" {{ 'selected' if q.get('state') == 'problem' }}>needs attention</option>
+    <option value="unassigned" {{ 'selected' if q.get('state') == 'unassigned' }}>no proxy</option>
+  </select>
+  <button class="btn">Filter</button>
+  {% if q %}<a class="btn ghost" href="/apps">Clear</a>{% endif %}
+  <a class="btn" href="/apps/export.csv">Export CSV</a>
+</form>
+
+<form method="post" action="/apps/bulk">
+<input type="hidden" name="csrf" value="{{ csrf }}">
+<div class="bulkbar">
+  <span id="selcount">0 selected</span>
+  <button class="btn sm danger" name="action" value="delete" onclick="return confirm('Delete the selected use cases? Their proxies keep the name as “was …”.')">Delete use cases</button>
+  <span class="count">{{ rows|length }} shown</span>
+</div>
+<div class="tablewrap">
+<table class="grid sheet">
+<thead><tr>
+  <th><input type="checkbox" id="selall"></th><th>Use case</th><th>Proxy</th><th>Status</th><th>Health</th><th>IP:Port</th><th>Region</th>
+  <th class="num">Latency</th><th>Since</th><th>Last error</th>
+</tr></thead>
+<tbody>
+{% for a in rows %}
+<tr class="{{ 'prob' if a.proxy_id and a.state not in ('healthy',) }}">
+  <td><input type="checkbox" name="ids" value="{{ a.id }}" class="sel"></td>
+  <td><a href="/apps/{{ a.id }}"><b>{{ a.name }}</b></a>{% if a.notes %}<div class="sub">{{ a.notes[:60] }}</div>{% endif %}</td>
+  <td>{% if a.proxy_id %}<a href="/proxy/{{ a.proxy_id }}">{{ a.label or '—' }}</a>{% else %}<span class="sub">no proxy</span>{% endif %}</td>
+  <td>{% if a.proxy_id %}<span class="pill lcp-{{ a.lifecycle }}">{{ lifecycles[a.lifecycle] }}</span>{% endif %}</td>
+  <td>{% if a.proxy_id %}{% if a.enabled %}<span class="pill {{ a.status }}">{{ {'healthy':'healthy','dead':'down','unknown':'pending'}[a.status] }}</span>{% else %}<span class="sub">not monitored</span>{% endif %}{% endif %}</td>
+  <td class="mono">{{ (a.host ~ ':' ~ a.port) if a.proxy_id else '' }}</td>
+  <td>{{ a.region or '' }}</td>
+  <td class="num">{{ a.last_latency_ms ~ ' ms' if a.last_latency_ms is not none else '—' }}</td>
+  <td class="sub">{{ a.assigned_at|ago if a.assigned_at else '' }}</td>
+  <td class="err" title="{{ a.last_error or '' }}">{{ a.last_error if a.status == 'dead' and a.last_error else '' }}</td>
+</tr>
+{% else %}
+<tr><td colspan="10" class="empty">No use cases yet — type one in the Use case column on the <a href="/">Proxies</a> page.</td></tr>
+{% endfor %}
+</tbody>
+</table>
+</div>
+</form>
+
+<form method="post" action="/apps/import" class="card" id="import">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <h3>Bulk link use cases to proxies</h3>
+  <p class="sub">One per line: <code>use-case, proxy</code>. The proxy can be its IP if it's already in the dashboard, or a full <code>ip:port:user:pass</code> (created if new). Easier for many rows: paste your sheet on the <a href="/add">Add</a> page.</p>
+  <textarea name="lines" rows="6" class="mono" placeholder="app-1, 34.68.10.21
+app-1, 34.68.10.22:3128:user:PASSWORD"></textarea>
+  <button class="btn primary">Link</button>
+</form>
+{% endblock %}
+{% block scripts %}<script src="/static/app.js"></script>{% endblock %}

@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Proxy Manager{% endblock %}</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+{% if user %}
+<header class="top">
+  <a class="brand" href="/"><span class="dot"></span>Proxy Manager</a>
+  <nav>
+    <a href="/" class="{{ 'on' if nav in ('dashboard', 'proxy') }}">Proxies</a>
+    <a href="/health" class="{{ 'on' if nav == 'health' }}">Health</a>
+    <a href="/apps" class="{{ 'on' if nav in ('apps', 'app') }}">Use cases</a>
+    <a href="/add" class="{{ 'on' if nav == 'add' }}">Add</a>
+    <a href="/events" class="{{ 'on' if nav == 'events' }}">Events</a>
+    {% if is_admin %}<a href="/settings" class="{{ 'on' if nav == 'settings' }}">Settings</a>
+    <a href="/users" class="{{ 'on' if nav == 'users' }}">Users</a>{% endif %}
+  </nav>
+  <a class="me {{ 'on' if nav == 'account' }}" href="/account" title="My account / change password">{{ user }}</a>
+  <a class="logout" href="/logout">Log out</a>
+</header>
+{% endif %}
+<main class="{% block mainclass %}wrap{% endblock %}">
+  {% for kind, msg in flashes %}<div class="flash {{ kind }}">{{ msg }}</div>{% endfor %}
+  {% block content %}{% endblock %}
+</main>
+{% if user %}<footer class="foot">Proxy Manager {{ app_version }}</footer>{% endif %}
+{% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Events · Proxy Manager{% endblock %}
+{% macro qs(extra) %}{% for k, v in q.items() if k not in extra and k != 'page' %}{{ k }}={{ v|urlencode }}&{% endfor %}{% for k, v in extra.items() %}{{ k }}={{ v|urlencode }}&{% endfor %}{% endmacro %}
+{% block content %}
+<h1>Events</h1>
+<nav class="tabs">
+  <a href="/events?{{ qs({'group': ''}) }}" class="{{ 'on' if not q.get('group') }}">All</a>
+  {% for key, (label, _) in groups.items() %}<a href="/events?{{ qs({'group': key}) }}" class="{{ 'on' if q.get('group') == key }}">{{ label }}</a>{% endfor %}
+</nav>
+<form class="filters" method="get" action="/events">
+  <input type="hidden" name="group" value="{{ q.get('group', '') }}">
+  <input name="q" placeholder="Search proxy name, IP, use case, text" value="{{ q.get('q', '') }}">
+  <select name="health">
+    <option value="">Any change</option>
+    <option value="down" {{ 'selected' if q.get('health') == 'down' }}>went down</option>
+    <option value="up" {{ 'selected' if q.get('health') == 'up' }}>recovered</option>
+  </select>
+  <select name="provider"><option value="">Any provider</option>{% for pr in providers %}<option {{ 'selected' if q.get('provider') == pr }}>{{ pr }}</option>{% endfor %}</select>
+  <select name="actor"><option value="">Anyone</option><option value="system" {{ 'selected' if q.get('actor') == 'system' }}>automatic</option>{% for a in actors %}<option {{ 'selected' if q.get('actor') == a }}>{{ a }}</option>{% endfor %}</select>
+  <label class="inline">from <input type="date" name="from" value="{{ q.get('from', '') }}" style="width:auto"></label>
+  <label class="inline">to <input type="date" name="to" value="{{ q.get('to', '') }}" style="width:auto"></label>
+  <button class="btn">Filter</button>
+  {% if q.get('q') or q.get('health') or q.get('provider') or q.get('actor') or q.get('from') or q.get('to') %}<a class="btn ghost" href="/events?group={{ q.get('group', '') }}">Clear</a>{% endif %}
+  <a class="btn" href="/events.csv?{{ qs({}) }}">Export CSV</a>
+</form>
+<div class="bulkbar"><span>{{ total }} event{{ '' if total == 1 else 's' }}</span>
+  <span class="count">{% if page > 1 %}<a class="btn sm" href="/events?{{ qs({'page': page - 1}) }}">← Newer</a>{% endif %}
+  page {{ page }} / {{ pages }}
+  {% if page < pages %}<a class="btn sm" href="/events?{{ qs({'page': page + 1}) }}">Older →</a>{% endif %}</span></div>
+<div class="tablewrap">
+<table class="grid sheet">
+<thead><tr><th>When</th><th>Type</th><th>Proxy</th><th>What happened</th><th>By</th></tr></thead>
+<tbody>
+{% for e in rows %}
+{% set g = kind_group.get(e.kind, '') %}
+<tr class="{{ 'prob' if e.kind == 'status' and ' -> dead' in e.message }}">
+  <td class="nowrap"><span title="{{ e.ts|ts }}">{{ e.ts|ago }}</span><div class="sub">{{ e.ts.strftime('%b %d %H:%M') }} UTC</div></td>
+  <td><span class="tag">{{ groups[g][0] if g else e.kind }}</span></td>
+  <td class="nowrap">{% if e.proxy_id and e.host %}<a href="/proxy/{{ e.proxy_id }}"><b>{{ e.label or (e.host ~ ':' ~ e.port) }}</b></a>{% if e.seq %} <span class="sub">#{{ e.seq }}</span>{% endif %}{% elif e.proxy_id %}<span class="sub">(erased proxy)</span>{% endif %}</td>
+  <td>{{ e.message }}</td>
+  <td class="sub">{{ e.actor if e.actor not in ('', 'system') else 'auto' }}</td>
+</tr>
+{% else %}
+<tr><td colspan="5" class="empty">No events match.</td></tr>
+{% endfor %}
+</tbody>
+</table>
+</div>
+{% if pages > 1 %}<div class="bulkbar" style="margin-top:8px"><span class="count">{% if page > 1 %}<a class="btn sm" href="/events?{{ qs({'page': page - 1}) }}">← Newer</a>{% endif %} page {{ page }} / {{ pages }} {% if page < pages %}<a class="btn sm" href="/events?{{ qs({'page': page + 1}) }}">Older →</a>{% endif %}</span></div>{% endif %}
+{% endblock %}

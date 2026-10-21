@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% block title %}Health · Proxy Manager{% endblock %}
+{% macro qs(extra) %}{% for k, v in q.items() if k not in extra %}{{ k }}={{ v|urlencode }}&{% endfor %}{% for k, v in extra.items() %}{{ k }}={{ v|urlencode }}&{% endfor %}{% endmacro %}
+{% block content %}
+<section class="stats">
+  <a class="stat {{ 'bad' if top.open }}" href="/health?tab=incidents&open=1"><b>{{ top.open }}</b><span>Down right now{% if top.open_active %} · <em class="no">{{ top.open_active }} Active</em>{% endif %}</span></a>
+  <a class="stat" href="/health?tab=incidents&win=24h"><b>{{ top.day }}</b><span>Outages, last 24h</span></a>
+  <div class="stat"><b>{{ (top.down_secs_24h|dur) or '0s' }}</b><span>Proxy-hours down, last 24h</span></div>
+  <div class="stat"><b>{{ (top.mttr|dur) if top.mttr is not none else '—' }}</b><span>Typical time to recover (7d)</span></div>
+</section>
+
+<nav class="tabs">
+  <a href="/health?tab=incidents" class="{{ 'on' if tab == 'incidents' }}">Outages</a>
+  <a href="/health?tab=flaky" class="{{ 'on' if tab == 'flaky' }}">Flaky proxies</a>
+  <a href="/health?tab=providers" class="{{ 'on' if tab == 'providers' }}">By provider</a>
+</nav>
+
+{% if tab == 'incidents' %}
+<p class="sub">Every time a proxy was marked down (3 failed checks in a row) until it came back. Ongoing ones are listed first.</p>
+<form class="filters" method="get" action="/health">
+  <input type="hidden" name="tab" value="incidents">
+  <input name="q" placeholder="Search name, IP, use case, error" value="{{ q.get('q', '') }}">
+  <select name="win">{% for k in windows %}<option value="{{ k }}" {{ 'selected' if win == k }}>{{ 'all time' if k == 'all' else 'last ' ~ k }}</option>{% endfor %}</select>
+  <select name="reason"><option value="">Any reason</option>{% for k, l in reasons.items() %}<option value="{{ k }}" {{ 'selected' if q.get('reason') == k }}>{{ l }}</option>{% endfor %}</select>
+  <select name="provider"><option value="">Any provider</option>{% for pr in providers %}<option {{ 'selected' if q.get('provider') == pr }}>{{ pr }}</option>{% endfor %}</select>
+  <select name="life"><option value="">Any status</option>{% for k, t in lifecycles.items() %}<option value="{{ k }}" {{ 'selected' if q.get('life') == k }}>{{ t }}</option>{% endfor %}</select>
+  <label class="inline nowrap"><input type="checkbox" name="open" value="1" {{ 'checked' if q.get('open') == '1' }}> still down only</label>
+  <button class="btn">Filter</button>
+  <a class="btn" href="/health/incidents.csv?{{ qs({}) }}">Export CSV</a>
+</form>
+<div class="tablewrap">
+<table class="grid sheet">
+<thead><tr><th class="num">#</th><th>Name</th><th>Use case</th><th>Provider</th><th>Started</th><th>Duration</th><th>Reason</th><th>Error</th><th>Ended</th></tr></thead>
+<tbody>
+{% for r in rows %}
+<tr class="{{ 'prob' if not r.ended_at and r.now_life == 'active' }}">
+  <td class="num sub">{{ r.seq }}</td>
+  <td class="name"><a href="/proxy/{{ r.proxy_id }}"><b>{{ r.label or (r.host ~ ':' ~ r.port) }}</b></a><div class="sub mono">{{ r.host }}:{{ r.port }}</div></td>
+  <td>{{ r.usecase or r.now_usecase or '' }}</td>
+  <td>{{ r.provider }}{% if r.region %} <span class="sub">{{ r.region }}</span>{% endif %}</td>
+  <td class="nowrap" title="{{ r.started_at|ts }}">{{ r.started_at|ago }}</td>
+  <td class="nowrap">{% if not r.ended_at %}<span class="pill dead">down {{ r.secs|dur }}</span>{% else %}{{ r.secs|dur }}{% endif %}</td>
+  <td><span class="pill reason-{{ r.reason }}">{{ reasons.get(r.reason, r.reason) }}</span>{% if r.backfilled %} <span class="sub" title="Rebuilt from older events">·</span>{% endif %}</td>
+  <td class="err" title="{{ r.error }}{% if r.last_error and r.last_error != r.error %} → latest: {{ r.last_error }}{% endif %}">{{ r.last_error or r.error }}</td>
+  <td class="sub nowrap">{% if r.ended_at %}{{ r.end_note }} {{ r.ended_at|ago }}{% else %}—{% endif %}</td>
+</tr>
+{% else %}
+<tr><td colspan="9" class="empty">No outages in this period. 🎉</td></tr>
+{% endfor %}
+</tbody>
+</table>
+</div>
+
+{% elif tab == 'flaky' %}
+<p class="sub">Proxies that failed some health checks without (yet) being marked down — intermittent timeouts show up here. Rounds where almost every proxy failed at once (our own network) are ignored.</p>
+<form class="filters" method="get" action="/health">
+  <input type="hidden" name="tab" value="flaky">
+  <select name="win">{% for k in windows %}<option value="{{ k }}" {{ 'selected' if win == k }}>last {{ k }}</option>{% endfor %}</select>
+  <select name="reason">
+    <option value="">Any failure</option>
+    {% for k, l in [('timeout','had timeouts'),('conn','had connection errors'),('auth','had wrong-password'),('other','had other errors')] %}<option value="{{ k }}" {{ 'selected' if q.get('reason') == k }}>{{ l }}</option>{% endfor %}
+  </select>
+  <select name="provider"><option value="">Any provider</option>{% for pr in providers %}<option {{ 'selected' if q.get('provider') == pr }}>{{ pr }}</option>{% endfor %}</select>
+  <select name="life"><option value="">Any status</option>{% for k, t in lifecycles.items() %}<option value="{{ k }}" {{ 'selected' if q.get('life') == k }}>{{ t }}</option>{% endfor %}</select>
+  <select name="health"><option value="up" {{ 'selected' if q.get('health', 'up') == 'up' }}>up now</option><option value="all" {{ 'selected' if q.get('health') == 'all' }}>include down</option></select>
+  <button class="btn">Filter</button>
+</form>
+<div class="tablewrap">
+<table class="grid sheet">
+<thead><tr>
+  {% macro th(key, label, cls='') %}<th class="{{ cls }}"><a class="sortable {{ 'on' if sort == key }}" href="/health?{{ qs({'sort': key}) }}">{{ label }} <span class="arrow">{{ '▼' if sort == key else '⇅' }}</span></a></th>{% endmacro %}
+  {{ th('seq', '#', 'num') }}<th>Name</th><th>Use case</th><th>Status</th><th>Provider</th>
+  {{ th('fail_pct', 'Failed %', 'num') }}{{ th('failed', 'Failed', 'num') }}{{ th('timeouts', 'Timeouts', 'num') }}{{ th('conn', 'Conn. errors', 'num') }}<th class="num">Other</th>{{ th('avg_ms', 'Avg ms', 'num') }}{{ th('last_fail', 'Last failure') }}
+</tr></thead>
+<tbody>
+{% for r in rows %}
+<tr class="{{ 'prob' if r.lifecycle == 'active' and r.fail_pct >= 5 }}">
+  <td class="num sub">{{ r.seq }}</td>
+  <td class="name"><a href="/proxy/{{ r.id }}"><b>{{ r.label or (r.host ~ ':' ~ r.port) }}</b></a>{% if r.status == 'dead' %} <span class="pill dead">down</span>{% endif %}</td>
+  <td>{{ r.usecase or '' }}</td>
+  <td><span class="pill lcp-{{ r.lifecycle }}">{{ lifecycles[r.lifecycle] }}</span></td>
+  <td>{{ r.provider }}{% if r.region %} <span class="sub">{{ r.region }}</span>{% endif %}</td>
+  <td class="num"><b class="{{ 'no' if r.fail_pct >= 5 }}">{{ r.fail_pct }}%</b></td>
+  <td class="num">{{ r.failed }} <span class="sub">/ {{ r.checks }}</span></td>
+  <td class="num">{{ r.timeouts or '' }}</td>
+  <td class="num">{{ r.conn or '' }}</td>
+  <td class="num">{{ (r.auth + r.other) or '' }}</td>
+  <td class="num">{{ r.avg_ms|int if r.avg_ms is not none else '—' }}</td>
+  <td class="sub nowrap">{{ r.last_fail|ago }}</td>
+</tr>
+{% else %}
+<tr><td colspan="12" class="empty">No failed checks in this period.</td></tr>
+{% endfor %}
+</tbody>
+</table>
+</div>
+
+{% else %}
+<p class="sub">How each provider's proxies behaved: share of failed health checks, outages and speed. Use it to decide where to buy more.</p>
+<form class="filters" method="get" action="/health">
+  <input type="hidden" name="tab" value="providers">
+  <select name="win" onchange="this.form.submit()">{% for k in windows %}<option value="{{ k }}" {{ 'selected' if win == k }}>last {{ k }}</option>{% endfor %}</select>
+</form>
+<div class="tablewrap">
+<table class="grid sheet">
+<thead><tr><th>Provider</th><th class="num">Proxies</th><th class="num">Active</th><th class="num">Down now</th><th class="num">Failed checks</th><th class="num">Flaky</th><th class="num">Timeouts</th><th class="num">Outages</th><th class="num">Avg ms</th><th class="num">$/proxy/mo</th></tr></thead>
+<tbody>
+{% for r in rows %}
+<tr>
+  <td><a href="/health?tab=flaky&provider={{ r.provider|urlencode }}&win={{ win }}"><b>{{ r.provider }}</b></a></td>
+  <td class="num">{{ r.proxies }}</td>
+  <td class="num">{{ r.active }}</td>
+  <td class="num">{% if r.down %}<span class="no">{{ r.down }}</span>{% else %}0{% endif %}</td>
+  <td class="num"><b class="{{ 'no' if r.fail_pct and r.fail_pct >= 2 }}">{{ r.fail_pct ~ '%' if r.fail_pct is not none else '—' }}</b> <span class="sub">{{ r.failed }}/{{ r.checks }}</span></td>
+  <td class="num">{{ r.flaky }}</td>
+  <td class="num">{{ r.timeouts }}</td>
+  <td class="num"><a href="/health?tab=incidents&provider={{ r.provider|urlencode }}&win={{ '7d' if win in ('7d', '14d') else '24h' }}">{{ r.incidents }}</a></td>
+  <td class="num">{{ r.avg_ms if r.avg_ms is not none else '—' }}</td>
+  <td class="num">{{ '$%.2f'|format(r.price) if r.price is not none else '—' }}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+</div>
+{% endif %}
+{% endblock %}
+{% block scripts %}<script src="/static/app.js"></script>{% endblock %}

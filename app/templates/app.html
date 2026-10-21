@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}{{ a.name }} · Proxy Manager{% endblock %}
+{% block content %}
+<a href="/apps" class="back">← All use cases</a>
+<div class="head">
+  <h1>{{ a.name }}</h1>
+  {% if a.proxy_id %}<span class="pill lcp-{{ a.lifecycle }}">{{ lifecycles[a.lifecycle] }}</span>
+  {% if a.enabled %}<span class="pill {{ a.status }}">{{ {'healthy':'healthy','dead':'down','unknown':'pending'}[a.status] }}</span>{% endif %}
+  {% else %}<span class="pill unassigned">no proxy</span>{% endif %}
+  <form method="post" class="actions">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    {% if a.proxy_id %}<button class="btn" name="action" value="unassign" onclick="return confirm('Unlink {{ a.label or a.host }} from {{ a.name }}?')">Unlink proxy</button>{% endif %}
+    <button class="btn danger" name="action" value="delete" onclick="return confirm('Delete use case {{ a.name }}?')">Delete</button>
+  </form>
+</div>
+
+<div class="cols">
+<div class="card">
+  <h3>Proxy now</h3>
+  {% if a.proxy_id %}
+  <pre class="copy">{{ url }}</pre>
+  <dl class="meta">
+    <dt>Proxy</dt><dd><a href="/proxy/{{ a.proxy_id }}"><b>{{ a.label or '—' }}</b> <span class="mono">{{ a.host }}:{{ a.port }}</span></a> · {{ a.region or a.provider }}</dd>
+    <dt>Since</dt><dd>{{ a.assigned_at|ts }}</dd>
+    {% if a.last_error and a.status == 'dead' %}<dt>Last error</dt><dd class="err">{{ a.last_error }}</dd>{% endif %}
+  </dl>
+  {% else %}
+  <p class="sub">No proxy. Pick a 🆗 Ready one on the <a href="/?life=ready">Proxies</a> page and type <b>{{ a.name }}</b> in its Use case cell.</p>
+  {% endif %}
+  {% if past %}
+  <h3 style="margin-top:14px">Proxies it used before</h3>
+  {% for p in past %}<div class="ev"><a href="/proxy/{{ p.id }}">{{ p.label or (p.host ~ ':' ~ p.port) }}</a> <span class="mono sub">{{ p.host }}:{{ p.port }}</span>
+    {% if p.deleted_at %}<span class="pill deleted">Trash</span>{% else %}<span class="pill lcp-{{ p.lifecycle }}">{{ lifecycles[p.lifecycle] }}</span>{% endif %}</div>{% endfor %}
+  {% endif %}
+</div>
+<form method="post" class="card">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <h3>Edit</h3>
+  <div class="kv">
+    <label class="wide">Name<input name="name" value="{{ a.name }}" required></label>
+    <label class="wide">Notes<textarea name="notes" rows="3">{{ a.notes }}</textarea></label>
+  </div>
+  <button class="btn" name="action" value="save">Save</button>
+</form>
+</div>
+
+<div class="card">
+  <h3>History</h3>
+  {% for e in events %}<div class="ev"><time title="{{ e.ts|ts }}">{{ e.ts|ago }}</time> {{ e.message }}{% if e.actor and e.actor != 'system' %} <span class="by">· {{ e.actor }}</span>{% endif %}</div>{% else %}<p class="sub">No changes yet.</p>{% endfor %}
+</div>
+{% endblock %}
+{% block scripts %}<script src="/static/app.js"></script>{% endblock %}

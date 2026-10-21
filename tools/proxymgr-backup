@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# proxymgr-backup [label]  — full database backup to $BACKUP_DIR (default /var/backups/proxymgr).
+#   label "daily" backups older than BACKUP_KEEP_DAYS (default 7) are pruned; the 5 newest
+#   "pre-upgrade" backups are kept; "manual" and others are never pruned.
+# Every file is verified (pg_restore --list) before it is kept.
+set -euo pipefail
+[ "$(id -u)" -eq 0 ] || { echo "run with sudo" >&2; exit 1; }
+ENVF=/etc/proxymgr/proxymgr.env
+BACKUP_DIR=/var/backups/proxymgr
+BACKUP_KEEP_DAYS=7
+if [ -f "$ENVF" ]; then
+  v="$(grep -E '^BACKUP_DIR=' "$ENVF" | tail -1 | cut -d= -f2-)";       [ -n "$v" ] && BACKUP_DIR="$v"
+  v="$(grep -E '^BACKUP_KEEP_DAYS=' "$ENVF" | tail -1 | cut -d= -f2-)"; [ -n "$v" ] && BACKUP_KEEP_DAYS="$v"
+fi
+LABEL="${1:-manual}"
+case "$LABEL" in *[!a-z0-9-]*|"") echo "label: lowercase letters, digits, dash" >&2; exit 2 ;; esac
+install -d -m 700 "$BACKUP_DIR"
+F="$BACKUP_DIR/proxymgr-$LABEL-$(date +%Y%m%d-%H%M%S).dump"
+trap 'rm -f "$F.tmp"' EXIT
+cd /
+sudo -u postgres pg_dump -Fc proxymgr > "$F.tmp"
+pg_restore --list "$F.tmp" >/dev/null           # unreadable dump -> error, nothing kept
+mv "$F.tmp" "$F"
+chmod 600 "$F"
+SIZE="$(du -h "$F" | cut -f1)"
+echo "$F ($SIZE)"
+if [ "$LABEL" = daily ]; then
+  find "$BACKUP_DIR" -maxdepth 1 -name 'proxymgr-daily-*.dump' -mtime +"$BACKUP_KEEP_DAYS" -delete
+fi
+ls -1t "$BACKUP_DIR"/proxymgr-pre-upgrade-*.dump 2>/dev/null | tail -n +6 | xargs -r rm -f
+# let the dashboard show when the last backup ran (ignored if the table doesn't exist yet)
+sudo -u postgres psql -q -d proxymgr -v ON_ERROR_STOP=0 \
+  -c "INSERT INTO meta (key, value) VALUES ('last_backup', '$(date -u +%s)|$F|$SIZE') ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value" \
+  >/dev/null 2>&1 || true

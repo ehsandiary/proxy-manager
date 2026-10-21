@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}Sign in · Proxy Manager{% endblock %}
+{% block mainclass %}center{% endblock %}
+{% block content %}
+<form method="post" action="/login" class="card login">
+  <div class="brand big"><span class="dot"></span>Proxy Manager</div>
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <input type="hidden" name="next" value="{{ next }}">
+  <label>Username<input name="username" autocomplete="username" autofocus required></label>
+  <label>Password<input name="password" type="password" autocomplete="current-password" required></label>
+  <button class="btn primary">Sign in</button>
+</form>
+{% endblock %}
