@@ -4,7 +4,7 @@
 set -euo pipefail
 [ "$(id -u)" -eq 0 ] || { echo "run with sudo" >&2; exit 1; }
 BACKUP_DIR=/var/backups/proxymgr
-v="$(grep -E '^BACKUP_DIR=' /etc/proxymgr/proxymgr.env 2>/dev/null | tail -1 | cut -d= -f2-)"; [ -n "$v" ] && BACKUP_DIR="$v"
+v="$(grep -E '^BACKUP_DIR=' /etc/proxymgr/proxymgr.env 2>/dev/null | tail -1 | cut -d= -f2- || true)"; [ -n "$v" ] && BACKUP_DIR="$v"
 F="${1:-}"
 [ -n "$F" ] && [ -f "$F" ] || { echo "usage: sudo proxymgr-restore /path/to/proxymgr-....dump" >&2; ls -1t "$BACKUP_DIR"/*.dump 2>/dev/null | head -10; exit 2; }
 pg_restore --list "$F" >/dev/null || { echo "not a valid proxymgr backup: $F" >&2; exit 1; }

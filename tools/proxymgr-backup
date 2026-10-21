@@ -9,8 +9,8 @@ ENVF=/etc/proxymgr/proxymgr.env
 BACKUP_DIR=/var/backups/proxymgr
 BACKUP_KEEP_DAYS=7
 if [ -f "$ENVF" ]; then
-  v="$(grep -E '^BACKUP_DIR=' "$ENVF" | tail -1 | cut -d= -f2-)";       [ -n "$v" ] && BACKUP_DIR="$v"
-  v="$(grep -E '^BACKUP_KEEP_DAYS=' "$ENVF" | tail -1 | cut -d= -f2-)"; [ -n "$v" ] && BACKUP_KEEP_DAYS="$v"
+  v="$(grep -E '^BACKUP_DIR=' "$ENVF" | tail -1 | cut -d= -f2- || true)";       [ -n "$v" ] && BACKUP_DIR="$v"
+  v="$(grep -E '^BACKUP_KEEP_DAYS=' "$ENVF" | tail -1 | cut -d= -f2- || true)"; [ -n "$v" ] && BACKUP_KEEP_DAYS="$v"
 fi
 LABEL="${1:-manual}"
 case "$LABEL" in *[!a-z0-9-]*|"") echo "label: lowercase letters, digits, dash" >&2; exit 2 ;; esac
@@ -25,9 +25,9 @@ chmod 600 "$F"
 SIZE="$(du -h "$F" | cut -f1)"
 echo "$F ($SIZE)"
 if [ "$LABEL" = daily ]; then
-  find "$BACKUP_DIR" -maxdepth 1 -name 'proxymgr-daily-*.dump' -mtime +"$BACKUP_KEEP_DAYS" -delete
+  find "$BACKUP_DIR" -maxdepth 1 -name 'proxymgr-daily-*.dump' -mtime +"$BACKUP_KEEP_DAYS" -delete || true
 fi
-ls -1t "$BACKUP_DIR"/proxymgr-pre-upgrade-*.dump 2>/dev/null | tail -n +6 | xargs -r rm -f
+ls -1t "$BACKUP_DIR"/proxymgr-pre-upgrade-*.dump 2>/dev/null | tail -n +6 | xargs -r rm -f || true
 # let the dashboard show when the last backup ran (ignored if the table doesn't exist yet)
 sudo -u postgres psql -q -d proxymgr -v ON_ERROR_STOP=0 \
   -c "INSERT INTO meta (key, value) VALUES ('last_backup', '$(date -u +%s)|$F|$SIZE') ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value" \
